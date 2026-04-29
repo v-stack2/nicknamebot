@@ -1,0 +1,13 @@
+app = "your-discord-bot-name"
+primary_region = "sea"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  DELETE_MESSAGES = "true"
+
+[[vm]]
+  memory = "256mb"
+  cpu_kind = "shared"
+  cpus = 1
