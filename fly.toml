@@ -6,9 +6,7 @@ primary_region = "ams"
 
 [env]
   DELETE_MESSAGES = "true"
-
-[processes]
-  app = "python bot.py"
+  BOT_DEBUG = "true"
 
 [[vm]]
   memory = "256mb"

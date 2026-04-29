@@ -1,24 +1,35 @@
+import logging
 import os
 import re
-import logging
 
 import discord
 from discord.ext import commands
 
-logging.basicConfig(level=logging.INFO)
-log = logging.getLogger("nicknamebot")
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s",
+)
+
+def required_int_env(name: str) -> int:
+    raw = os.getenv(name)
+    if not raw:
+        raise RuntimeError(f"Missing {name} environment variable.")
+    try:
+        return int(raw)
+    except ValueError as exc:
+        raise RuntimeError(f"{name} must be a Discord numeric ID, got: {raw!r}") from exc
+
 
 TOKEN = os.getenv("DISCORD_TOKEN")
-TARGET_CHANNEL_ID = int(os.getenv("TARGET_CHANNEL_ID", "0"))
-ROLE_ID = int(os.getenv("ROLE_ID", "0"))
-DELETE_MESSAGES = os.getenv("DELETE_MESSAGES", "true").lower() == "true"
-
 if not TOKEN:
     raise RuntimeError("Missing DISCORD_TOKEN environment variable.")
-if not TARGET_CHANNEL_ID:
-    raise RuntimeError("Missing TARGET_CHANNEL_ID environment variable.")
-if not ROLE_ID:
-    raise RuntimeError("Missing ROLE_ID environment variable.")
+
+TARGET_CHANNEL_ID = required_int_env("TARGET_CHANNEL_ID")
+ROLE_ID = required_int_env("ROLE_ID")
+DELETE_MESSAGES = os.getenv("DELETE_MESSAGES", "true").lower() == "true"
+BOT_DEBUG = os.getenv("BOT_DEBUG", "false").lower() == "true"
+
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -35,16 +46,24 @@ def clean_nickname(text: str) -> str:
 
 
 @bot.event
-async def on_ready():
-    log.info("Logged in as %s (%s)", bot.user, bot.user.id)
-    log.info("Watching channel ID: %s", TARGET_CHANNEL_ID)
-    log.info("Assigning role ID: %s", ROLE_ID)
+async def on_ready() -> None:
+    logging.info("Logged in as %s (%s)", bot.user, bot.user.id)
+    logging.info("Watching TARGET_CHANNEL_ID=%s and assigning ROLE_ID=%s", TARGET_CHANNEL_ID, ROLE_ID)
 
 
 @bot.event
-async def on_message(message: discord.Message):
+async def on_message(message: discord.Message) -> None:
     if message.author.bot:
         return
+
+    if BOT_DEBUG:
+        logging.info(
+            "Message seen: guild=%s channel=%s author=%s content_length=%s",
+            getattr(message.guild, "id", None),
+            message.channel.id,
+            message.author.id,
+            len(message.content or ""),
+        )
 
     if message.guild is None:
         return
@@ -52,57 +71,64 @@ async def on_message(message: discord.Message):
     if message.channel.id != TARGET_CHANNEL_ID:
         return
 
-    member = message.author
-    nickname = clean_nickname(message.content)
-
-    log.info(
-        "Received registration message from %s (%s) in channel %s: %r",
-        member,
-        member.id,
-        message.channel.id,
-        message.content,
-    )
+    guild = message.guild
+    nickname = clean_nickname(message.content or "")
 
     if not nickname:
-        log.info("Empty nickname after cleaning; deleting only.")
+        logging.info("Empty nickname submitted by user=%s", message.author.id)
         if DELETE_MESSAGES:
             try:
                 await message.delete()
-            except Exception as e:
-                log.exception("Failed to delete empty message: %s", e)
+            except discord.Forbidden:
+                logging.exception("Cannot delete empty submission: missing Manage Messages or channel override denies it.")
+            except discord.HTTPException:
+                logging.exception("HTTP error while deleting empty submission.")
         return
 
-    role = message.guild.get_role(ROLE_ID)
+    role = guild.get_role(ROLE_ID)
     if role is None:
-        log.error("Role not found. ROLE_ID=%s is wrong or from another server.", ROLE_ID)
+        logging.error("Role not found. ROLE_ID=%s is not a role in guild=%s", ROLE_ID, guild.id)
+        return
+
+    try:
+        member = guild.get_member(message.author.id)
+        if member is None:
+            member = await guild.fetch_member(message.author.id)
+    except discord.HTTPException:
+        logging.exception("Could not resolve member object for user=%s", message.author.id)
         return
 
     try:
         await member.edit(nick=nickname, reason="Nickname submitted through registration channel")
-        log.info("Changed nickname for %s to %r", member.id, nickname)
+        logging.info("Nickname set for user=%s to %r", member.id, nickname)
     except discord.Forbidden:
-        log.exception("Cannot change nickname. Check Manage Nicknames and bot role hierarchy.")
-    except discord.HTTPException as e:
-        log.exception("Nickname update failed: %s", e)
+        logging.exception(
+            "Cannot change nickname for user=%s. Check Manage Nicknames and bot role hierarchy.",
+            member.id,
+        )
+    except discord.HTTPException:
+        logging.exception("HTTP error while changing nickname for user=%s", member.id)
 
     try:
         await member.add_roles(role, reason="Submitted nickname through registration channel")
-        log.info("Assigned role %s to %s", role.id, member.id)
+        logging.info("Role %s assigned to user=%s", role.id, member.id)
     except discord.Forbidden:
-        log.exception("Cannot assign role. Check Manage Roles and bot role hierarchy above assigned role.")
-    except discord.HTTPException as e:
-        log.exception("Role assignment failed: %s", e)
+        logging.exception(
+            "Cannot assign role=%s to user=%s. Check Manage Roles, role hierarchy, and that the target role is below the bot role.",
+            role.id,
+            member.id,
+        )
+    except discord.HTTPException:
+        logging.exception("HTTP error while assigning role=%s to user=%s", role.id, member.id)
 
     if DELETE_MESSAGES:
         try:
             await message.delete()
-            log.info("Deleted registration message from %s", member.id)
+            logging.info("Deleted submission message=%s from user=%s", message.id, member.id)
         except discord.Forbidden:
-            log.exception("Cannot delete message. Check Manage Messages in this channel.")
-        except discord.HTTPException as e:
-            log.exception("Message delete failed: %s", e)
-
-    await bot.process_commands(message)
+            logging.exception("Cannot delete message. Check Manage Messages and channel overrides.")
+        except discord.HTTPException:
+            logging.exception("HTTP error while deleting message=%s", message.id)
 
 
 bot.run(TOKEN)

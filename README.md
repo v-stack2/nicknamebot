@@ -6,28 +6,7 @@ This bot watches one Discord channel. When a user sends a message there, it:
 2. Assigns them a configured role.
 3. Deletes their message.
 
-## Required Discord bot permissions
-
-The bot needs:
-
-- Manage Nicknames
-- Manage Roles
-- Manage Messages
-- View Channel
-- Read Message History
-
-The bot's role must be above the role it assigns and above users whose nicknames it changes.
-
-## Required Discord developer portal intents
-
-Enable these privileged gateway intents:
-
-- Server Members Intent
-- Message Content Intent
-
-## Environment variables
-
-Set these in Fly secrets:
+## Fly secrets
 
 ```bash
 fly secrets set DISCORD_TOKEN="your_bot_token"
@@ -35,17 +14,31 @@ fly secrets set TARGET_CHANNEL_ID="123456789012345678"
 fly secrets set ROLE_ID="123456789012345678"
 ```
 
+## Discord Developer Portal
+
+Enable:
+
+- Server Members Intent
+- Message Content Intent
+
+## Discord server permissions
+
+The bot role needs:
+
+- View Channel
+- Read Message History
+- Manage Messages
+- Manage Nicknames
+- Manage Roles
+
+The bot role must be higher than the role it assigns and higher than users whose nicknames it edits.
+
 ## Deploy
 
+Make sure `app = "nicknamebot"` in `fly.toml` matches your actual Fly app name.
+
 ```bash
-fly launch --no-deploy
 fly deploy
+fly machines restart
+fly logs
 ```
-
-If you already have an app, edit `fly.toml` and replace:
-
-```toml
-app = "your-discord-bot-name"
-```
-
-with your Fly app name.
