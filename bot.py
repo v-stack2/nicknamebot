@@ -1,7 +1,12 @@
 import os
 import re
+import logging
+
 import discord
 from discord.ext import commands
+
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger("nicknamebot")
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 TARGET_CHANNEL_ID = int(os.getenv("TARGET_CHANNEL_ID", "0"))
@@ -23,7 +28,6 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 
 def clean_nickname(text: str) -> str:
-    """Make user-submitted nickname safe enough for Discord."""
     text = text.strip()
     text = re.sub(r"\s+", " ", text)
     text = text.replace("@everyone", "everyone").replace("@here", "here")
@@ -32,7 +36,9 @@ def clean_nickname(text: str) -> str:
 
 @bot.event
 async def on_ready():
-    print(f"Logged in as {bot.user} ({bot.user.id})")
+    log.info("Logged in as %s (%s)", bot.user, bot.user.id)
+    log.info("Watching channel ID: %s", TARGET_CHANNEL_ID)
+    log.info("Assigning role ID: %s", ROLE_ID)
 
 
 @bot.event
@@ -40,50 +46,61 @@ async def on_message(message: discord.Message):
     if message.author.bot:
         return
 
-    if message.channel.id != TARGET_CHANNEL_ID:
+    if message.guild is None:
         return
 
-    guild = message.guild
-    if guild is None:
+    if message.channel.id != TARGET_CHANNEL_ID:
         return
 
     member = message.author
     nickname = clean_nickname(message.content)
 
+    log.info(
+        "Received registration message from %s (%s) in channel %s: %r",
+        member,
+        member.id,
+        message.channel.id,
+        message.content,
+    )
+
     if not nickname:
+        log.info("Empty nickname after cleaning; deleting only.")
         if DELETE_MESSAGES:
             try:
                 await message.delete()
-            except discord.Forbidden:
-                print("Missing permission: Manage Messages")
+            except Exception as e:
+                log.exception("Failed to delete empty message: %s", e)
         return
 
-    role = guild.get_role(ROLE_ID)
+    role = message.guild.get_role(ROLE_ID)
     if role is None:
-        print("Role not found. Check ROLE_ID.")
+        log.error("Role not found. ROLE_ID=%s is wrong or from another server.", ROLE_ID)
         return
 
     try:
         await member.edit(nick=nickname, reason="Nickname submitted through registration channel")
+        log.info("Changed nickname for %s to %r", member.id, nickname)
     except discord.Forbidden:
-        print(f"Cannot change nickname for {member}. Bot role may be too low or missing Manage Nicknames.")
+        log.exception("Cannot change nickname. Check Manage Nicknames and bot role hierarchy.")
     except discord.HTTPException as e:
-        print(f"Nickname update failed: {e}")
+        log.exception("Nickname update failed: %s", e)
 
     try:
         await member.add_roles(role, reason="Submitted nickname through registration channel")
+        log.info("Assigned role %s to %s", role.id, member.id)
     except discord.Forbidden:
-        print("Cannot assign role. Bot role may be too low or missing Manage Roles.")
+        log.exception("Cannot assign role. Check Manage Roles and bot role hierarchy above assigned role.")
     except discord.HTTPException as e:
-        print(f"Role assignment failed: {e}")
+        log.exception("Role assignment failed: %s", e)
 
     if DELETE_MESSAGES:
         try:
             await message.delete()
+            log.info("Deleted registration message from %s", member.id)
         except discord.Forbidden:
-            print("Cannot delete message. Missing Manage Messages.")
+            log.exception("Cannot delete message. Check Manage Messages in this channel.")
         except discord.HTTPException as e:
-            print(f"Message delete failed: {e}")
+            log.exception("Message delete failed: %s", e)
 
     await bot.process_commands(message)
 

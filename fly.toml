@@ -1,27 +1,16 @@
-# fly.toml app configuration file generated for nicknamebot on 2026-04-29T01:18:58Z
-#
-# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
-#
-
-app = 'nicknamebot'
-primary_region = 'ams'
+app = "nicknamebot"
+primary_region = "ams"
 
 [build]
-  dockerfile = 'Dockerfile'
+  dockerfile = "Dockerfile"
 
 [env]
-  DELETE_MESSAGES = 'true'
+  DELETE_MESSAGES = "true"
 
-[http_service]
-  internal_port = 8080
-  force_https = true
-  auto_stop_machines = 'stop'
-  auto_start_machines = true
-  min_machines_running = 0
-  processes = ['app']
+[processes]
+  app = "python bot.py"
 
 [[vm]]
-  memory = '256mb'
-  cpu_kind = 'shared'
+  memory = "256mb"
+  cpu_kind = "shared"
   cpus = 1
-  memory_mb = 256
